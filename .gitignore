@@ -1,0 +1,24 @@
+# visual studio
+bin/
+obj/
+*.suo
+*.user
+*.settings
+_ReSharper.*/
+*.resharper.user
+*.DotSettings.user
+PrecompiledWeb
+.vs/
+.vscode/
+.idea/
+*.ldf
+*logs.zip
+StyleCop.Cache
+TestsResults/
+**/TestResults
+test-results/
+
+# nuget
+packages/
+
+mssql-data

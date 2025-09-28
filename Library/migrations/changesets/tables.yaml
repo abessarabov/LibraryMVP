@@ -1,0 +1,342 @@
+databaseChangeLog:
+  - changeSet:
+      id: tbl-001-create-tables
+      author: alexey
+      changes:
+        - createTable:
+            tableName: Tag
+            columns:
+              - column:
+                  name: TagId
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: PK_Tag_TagId
+              - column:
+                  name: Name
+                  type: NVARCHAR(256)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: Active
+                  type: BIT
+                  constraints:
+                    nullable: false
+
+        - createTable:
+            tableName: Article
+            columns:
+              - column:
+                  name: ArticleId
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: PK_Article_ArticleId
+              - column:
+                  name: Name
+                  type: NVARCHAR(256)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: CreatedAt
+                  type: DATETIME2
+                  constraints:
+                    nullable: false
+              - column:
+                  name: UpdatedAt
+                  type: DATETIME2
+              - column:
+                  name: Active
+                  type: BIT
+                  constraints:
+                    nullable: false
+
+        - createTable:
+            tableName: ArticleTag
+            columns:
+              - column:
+                  name: ArticleId
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: TagId
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: OrderNum
+                  type: INT
+                  constraints:
+                    nullable: false
+
+        - createTable:
+            tableName: Section
+            columns:
+              - column:
+                  name: SectionId
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: PK_Section_SectionId
+              - column:
+                  name: Name
+                  type: NVARCHAR(1024)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: TagsHash
+                  type: CHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: Active
+                  type: BIT
+                  constraints:
+                    nullable: false
+
+        - createTable:
+            tableName: SectionTag
+            columns:
+              - column:
+                  name: SectionId
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: TagId
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+
+  - changeSet:
+      id: pk-001-create-primary-keys
+      author: alexey
+      changes:
+        - addPrimaryKey:
+            tableName: ArticleTag
+            columnNames: ArticleId, TagId
+            constraintName: PK_ArticleId_TagId
+
+        - addPrimaryKey:
+            tableName: SectionTag
+            columnNames: SectionId, TagId
+            constraintName: PK_SectionId_TagId
+
+  - changeSet:
+      id: fk-001-create-foreign-keys
+      author: alexey
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: ArticleTag
+            baseColumnNames: TagId
+            referencedTableName: Tag
+            referencedColumnNames: TagId
+            constraintName: FK_ArticleTag_TagId
+
+        - addForeignKeyConstraint:
+            baseTableName: ArticleTag
+            baseColumnNames: ArticleId
+            referencedTableName: Article
+            referencedColumnNames: ArticleId
+            constraintName: FK_ArticleTag_ArticleId
+
+        - addForeignKeyConstraint:
+            baseTableName: SectionTag
+            baseColumnNames: TagId
+            referencedTableName: Tag
+            referencedColumnNames: TagId
+            constraintName: FK_SectionTag_TagId
+
+        - addForeignKeyConstraint:
+            baseTableName: SectionTag
+            baseColumnNames: SectionId
+            referencedTableName: Section
+            referencedColumnNames: SectionId
+            constraintName: FK_SectionTag_SectionId
+
+  - changeSet:
+      id: df-001-create-default-values
+      author: alexey
+      changes:
+        - addDefaultValue:
+            tableName: Article
+            columnName: Active
+            columnDataType: BIT
+            defaultValueBoolean: true
+            constraintName: DF_Article_Active
+
+        - addDefaultValue:
+            tableName: Article
+            columnName: CreatedAt
+            columnDataType: DATETIME2
+            defaultValueComputed: GETUTCDATE()
+            constraintName: DF_Article_CreatedAt
+
+        - addDefaultValue:
+            tableName: Tag
+            columnName: Active
+            columnDataType: BIT
+            defaultValueBoolean: true
+            constraintName: DF_Tag_Active
+
+        - addDefaultValue:
+            tableName: Section
+            columnName: Active
+            columnDataType: BIT
+            defaultValueBoolean: true
+            constraintName: DF_Section_Active
+
+  - changeSet:
+      id: type-001-create-types
+      author: alexey
+      changes:
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+              CREATE TYPE dbo.TagList AS TABLE
+              (
+                  Id   BIGINT NULL,
+                  Name NVARCHAR(256) NOT NULL,
+                  OrderNum INT NULL
+              );
+
+  - changeSet:
+      id: sp-001-create-stored-procedures
+      author: alexey
+      changes:
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE PROCEDURE [dbo].[spTagListUpsert]
+                  @tags TagList READONLY
+                AS
+                BEGIN
+
+                    DECLARE @tagsTable TagList;
+
+                    MERGE dbo.Tag AS TARGET
+                    USING @tags AS SOURCE
+                    ON TARGET.Name = SOURCE.Name
+                    WHEN NOT MATCHED THEN
+                        INSERT (Name) VALUES (SOURCE.Name)
+                    OUTPUT inserted.TagId, inserted.Name, NULL INTO @tagsTable;
+
+                    INSERT INTO @tagsTable (Id, Name)
+                    SELECT TagId, Name
+                    FROM dbo.Tag WITH (NOLOCK)
+                    WHERE Name IN (SELECT Name FROM @tags)
+                      AND Name NOT IN (SELECT Name FROM @tagsTable);
+
+                    SELECT Id, Name FROM @tagsTable ORDER BY Id;
+
+                END;
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE PROCEDURE [dbo].[spArticleTagUpsert]
+                  @articleId BIGINT,
+                  @tags TagList READONLY
+                AS
+                BEGIN
+                    DECLARE @tagsTableToCreate TagList;
+
+                    INSERT INTO @tagsTableToCreate (Id, Name)
+                    EXEC dbo.spTagListUpsert @tags;
+
+                    MERGE @tagsTableToCreate AS TARGET
+                    USING @tags AS SOURCE
+                    ON (TARGET.Name = Source.Name)
+                    WHEN MATCHED THEN
+                        UPDATE SET TARGET.OrderNum = Source.OrderNum;
+
+                    MERGE ArticleTag AS TARGET
+                    USING @tagsTableToCreate AS SOURCE
+                    ON (TARGET.TagId = SOURCE.Id AND TARGET.ArticleId = @articleId)
+                    WHEN MATCHED THEN
+                        UPDATE SET TARGET.OrderNum = SOURCE.OrderNum
+                    WHEN NOT MATCHED BY TARGET THEN
+                        INSERT (ArticleId, TagId, OrderNum) VALUES (@articleId, SOURCE.Id, SOURCE.OrderNum)
+                    WHEN NOT MATCHED BY SOURCE AND TARGET.ArticleId = @articleId THEN
+                        DELETE;
+
+                END;
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE PROCEDURE [dbo].[spArticleUpsert]
+                  @name NVARCHAR(256),
+                  @tags TagList READONLY,
+                  @articleId BIGINT NULL = NULL
+                AS
+                BEGIN
+
+                    IF (EXISTS(SELECT 1 FROM dbo.Article A WITH (NOLOCK) WHERE @name = A.Name AND COALESCE(@articleId, ArticleId) != ArticleId))
+                    BEGIN
+                        RAISERROR(
+                            'Article with name "%s" already exists.',
+                            16,
+                            1,
+                            @name
+                        )
+                        RETURN -1
+                    END
+
+                    IF (@articleId IS NOT NULL AND NOT EXISTS(SELECT 1 FROM dbo.Article A WITH (NOLOCK) WHERE @articleId = A.ArticleId  ))
+                    BEGIN
+                        RAISERROR(
+                            'Article with id "%I64d" does not exist.',
+                            16,
+                            1,
+                            @articleId
+                        )
+                        RETURN -1
+                    END
+
+                    IF (@articleId IS NOT NULL)
+                    BEGIN
+                        MERGE dbo.Article AS TARGET
+                        USING ( 
+                            SELECT @name AS Name 
+                        ) AS SOURCE
+
+                        ON (Target.ArticleId = @articleId)
+                        WHEN MATCHED THEN
+                            UPDATE SET UpdatedAt = GETUTCDATE(), Name = Source.Name;
+                    END
+                    ELSE
+                    BEGIN
+
+                        DECLARE @article TABLE (
+                            ArticleId BIGINT
+                        )
+
+                        MERGE dbo.Article AS TARGET
+                        USING ( 
+                            SELECT @name AS Name 
+                        ) AS SOURCE
+
+                        ON (Target.Name = Source.Name)
+                        WHEN NOT MATCHED THEN
+                            INSERT (Name) VALUES (Source.Name)
+                        WHEN MATCHED THEN
+                            UPDATE SET UpdatedAt = GETUTCDATE(), Name = @name
+                        OUTPUT inserted.ArticleId INTO @article;
+
+                        SELECT @articleId = ArticleId FROM @article;
+                    END
+
+                    EXEC dbo.spArticleTagUpsert @articleId = @articleId, @tags = @tags;
+
+                END;
