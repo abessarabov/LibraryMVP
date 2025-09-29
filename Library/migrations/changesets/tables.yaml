@@ -18,11 +18,6 @@ databaseChangeLog:
                   type: NVARCHAR(256)
                   constraints:
                     nullable: false
-              - column:
-                  name: Active
-                  type: BIT
-                  constraints:
-                    nullable: false
 
         - createTable:
             tableName: Article
@@ -48,8 +43,16 @@ databaseChangeLog:
                   name: UpdatedAt
                   type: DATETIME2
               - column:
+                  name: TagsHash
+                  type: CHAR(64)
+              - column:
                   name: Active
                   type: BIT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: Status
+                  type: TINYINT
                   constraints:
                     nullable: false
 
@@ -69,6 +72,11 @@ databaseChangeLog:
               - column:
                   name: OrderNum
                   type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: Active
+                  type: BIT
                   constraints:
                     nullable: false
 
@@ -112,6 +120,61 @@ databaseChangeLog:
                   constraints:
                     nullable: false
 
+        - createTable:
+            tableName: SectionArticle
+            columns:
+              - column:
+                  name: SectionId
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: ArticleId
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: Active
+                  type: BIT
+                  constraints:
+                    nullable: false
+
+        - createTable:
+            tableName: ArticleEvent
+            columns:
+              - column:
+                  name: EventId
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: PK_Event_EventId
+              - column:
+                  name: ArticleId
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: ArticleEventTypeId
+                  type: TINYINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: TagsHash
+                  type: CHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: TagsConcatName
+                  type: NVARCHAR(1024)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: CreatedAt
+                  type: DATETIME2
+                  constraints:
+                    nullable: false
+
   - changeSet:
       id: pk-001-create-primary-keys
       author: alexey
@@ -125,6 +188,11 @@ databaseChangeLog:
             tableName: SectionTag
             columnNames: SectionId, TagId
             constraintName: PK_SectionId_TagId
+
+        - addPrimaryKey:
+            tableName: SectionArticle
+            columnNames: SectionId, ArticleId
+            constraintName: PK_SectionId_ArticleId
 
   - changeSet:
       id: fk-001-create-foreign-keys
@@ -158,6 +226,20 @@ databaseChangeLog:
             referencedColumnNames: SectionId
             constraintName: FK_SectionTag_SectionId
 
+        - addForeignKeyConstraint:
+            baseTableName: SectionArticle
+            baseColumnNames: ArticleId
+            referencedTableName: Article
+            referencedColumnNames: ArticleId
+            constraintName: FK_SectionArticle_ArticleId
+
+        - addForeignKeyConstraint:
+            baseTableName: SectionArticle
+            baseColumnNames: SectionId
+            referencedTableName: Section
+            referencedColumnNames: SectionId
+            constraintName: FK_SectionArticle_SectionId
+
   - changeSet:
       id: df-001-create-default-values
       author: alexey
@@ -171,17 +253,31 @@ databaseChangeLog:
 
         - addDefaultValue:
             tableName: Article
+            columnName: Status
+            columnDataType: TINYINT
+            defaultValueComputed: 0
+            constraintName: DF_Article_Status
+
+        - addDefaultValue:
+            tableName: Article
             columnName: CreatedAt
             columnDataType: DATETIME2
             defaultValueComputed: GETUTCDATE()
             constraintName: DF_Article_CreatedAt
 
         - addDefaultValue:
-            tableName: Tag
+            tableName: ArticleTag
             columnName: Active
             columnDataType: BIT
             defaultValueBoolean: true
-            constraintName: DF_Tag_Active
+            constraintName: DF_ArticleTag_Active
+
+        - addDefaultValue:
+            tableName: SectionArticle
+            columnName: Active
+            columnDataType: BIT
+            defaultValueBoolean: true
+            constraintName: DF_SectionArticle_Active
 
         - addDefaultValue:
             tableName: Section
@@ -205,11 +301,94 @@ databaseChangeLog:
                   Name NVARCHAR(256) NOT NULL,
                   OrderNum INT NULL
               );
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+              CREATE TYPE dbo.BigIntValueType AS TABLE(
+                 Value BIGINT NOT NULL
+              );
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+              CREATE TYPE dbo.ArticleList AS TABLE
+              (
+                  ArticleId BIGINT,
+                  TagsHash  CHAR(64),
+                  TagsConcatName NVARCHAR(1024)
+              );
+
+  - changeSet:
+      id: function-001-create-functions
+      author: alexey
+      changes:
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE FUNCTION fn_GetHashByTagIdList
+                (
+                  @tagList TagList READONLY
+                )
+                RETURNS CHAR(64)
+                AS
+                BEGIN
+                    DECLARE @concat NVARCHAR(MAX);
+                    DECLARE @hash VARBINARY(32);
+
+                    SELECT @concat = STRING_AGG(CAST(Id AS NVARCHAR(20)), ',')
+                    FROM @tagList;
+
+    
+                    SET @hash = HASHBYTES('SHA2_256', @concat);
+
+                    RETURN CONVERT(CHAR(64), @hash, 2);
+                END;
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE FUNCTION fn_GetConcatNameByTagList
+                (
+                  @tagList TagList READONLY
+                )
+                RETURNS NVARCHAR(1024)
+                AS
+                BEGIN
+                    DECLARE @concat NVARCHAR(MAX);
+
+                    SELECT @concat = LEFT(STRING_AGG(T.Name, ','), 1024)
+                    FROM @tagList T;
+
+                    RETURN @concat;
+                END;
 
   - changeSet:
       id: sp-001-create-stored-procedures
       author: alexey
       changes:
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE PROCEDURE [dbo].[spArticleEventInsert]
+                    @articleId BIGINT, 
+                    @articleEventTypeId TINYINT,
+                    @createdAt DATETIME2,
+                    @tagsHash CHAR(64),
+                    @tagsConcatName NVARCHAR(1024)
+
+                AS
+                BEGIN
+                    INSERT INTO dbo.ArticleEvent (ArticleId, ArticleEventTypeId, CreatedAt, TagsHash, TagsConcatName)
+                    VALUES (@articleId, 1, @createdAt, @tagsHash, @tagsConcatName);
+                END
         - sql:
             dbms: mssql
             stripComments: true
@@ -248,26 +427,23 @@ databaseChangeLog:
                   @tags TagList READONLY
                 AS
                 BEGIN
-                    DECLARE @tagsTableToCreate TagList;
+                    DECLARE @articleTags BigIntValueType;
 
-                    INSERT INTO @tagsTableToCreate (Id, Name)
-                    EXEC dbo.spTagListUpsert @tags;
-
-                    MERGE @tagsTableToCreate AS TARGET
-                    USING @tags AS SOURCE
-                    ON (TARGET.Name = Source.Name)
-                    WHEN MATCHED THEN
-                        UPDATE SET TARGET.OrderNum = Source.OrderNum;
-
-                    MERGE ArticleTag AS TARGET
-                    USING @tagsTableToCreate AS SOURCE
-                    ON (TARGET.TagId = SOURCE.Id AND TARGET.ArticleId = @articleId)
-                    WHEN MATCHED THEN
-                        UPDATE SET TARGET.OrderNum = SOURCE.OrderNum
-                    WHEN NOT MATCHED BY TARGET THEN
-                        INSERT (ArticleId, TagId, OrderNum) VALUES (@articleId, SOURCE.Id, SOURCE.OrderNum)
-                    WHEN NOT MATCHED BY SOURCE AND TARGET.ArticleId = @articleId THEN
-                        DELETE;
+                    INSERT INTO @articleTags (Value)
+                    SELECT TagId
+                    FROM (
+                        MERGE ArticleTag AS TARGET
+                        USING @tags AS SOURCE
+                        ON (TARGET.TagId = SOURCE.Id AND TARGET.ArticleId = @articleId)
+                        WHEN MATCHED THEN
+                            UPDATE SET TARGET.OrderNum = SOURCE.OrderNum, TARGET.Active = 1
+                        WHEN NOT MATCHED BY TARGET THEN
+                            INSERT (ArticleId, TagId, OrderNum) VALUES (@articleId, SOURCE.Id, SOURCE.OrderNum)
+                        WHEN NOT MATCHED BY SOURCE AND TARGET.ArticleId = @articleId THEN
+                            UPDATE SET TARGET.Active = 0
+                        OUTPUT inserted.TagId, inserted.Active
+                    ) AS MergeResult
+                    WHERE MergeResult.Active = 1;
 
                 END;
         - sql:
@@ -282,17 +458,6 @@ databaseChangeLog:
                 AS
                 BEGIN
 
-                    IF (EXISTS(SELECT 1 FROM dbo.Article A WITH (NOLOCK) WHERE @name = A.Name AND COALESCE(@articleId, ArticleId) != ArticleId))
-                    BEGIN
-                        RAISERROR(
-                            'Article with name "%s" already exists.',
-                            16,
-                            1,
-                            @name
-                        )
-                        RETURN -1
-                    END
-
                     IF (@articleId IS NOT NULL AND NOT EXISTS(SELECT 1 FROM dbo.Article A WITH (NOLOCK) WHERE @articleId = A.ArticleId  ))
                     BEGIN
                         RAISERROR(
@@ -303,17 +468,34 @@ databaseChangeLog:
                         )
                         RETURN -1
                     END
+                    IF (@articleId IS NOT NULL AND EXISTS(SELECT 1 FROM dbo.Article A WITH (NOLOCK) WHERE @articleId = A.ArticleId AND A.Active = 0 ))
+                    BEGIN
+                        RAISERROR(
+                            'Article with id "%I64d" has been deleted.',
+                            16,
+                            1,
+                            @articleId
+                        )
+                        RETURN -1
+                    END
+
+                    IF (EXISTS(SELECT 1 FROM dbo.Article A WITH (NOLOCK) WHERE (@articleId IS NULL AND @name = A.Name) OR (@articleId IS NOT NULL AND  @name = A.Name AND @articleId != A.ArticleId AND A.Active = 1))))
+                    BEGIN
+                        RAISERROR(
+                            'Article with name "%s" already exists.',
+                            16,
+                            1,
+                            @name
+                        )
+                        RETURN -1
+                    END
+
+                    DECLARE @currentDateTime DATETIME2 = GETUTCDATE();
+                    DECLARE @UpdatedAt DATETIME2 = NULL;
 
                     IF (@articleId IS NOT NULL)
                     BEGIN
-                        MERGE dbo.Article AS TARGET
-                        USING ( 
-                            SELECT @name AS Name 
-                        ) AS SOURCE
-
-                        ON (Target.ArticleId = @articleId)
-                        WHEN MATCHED THEN
-                            UPDATE SET UpdatedAt = GETUTCDATE(), Name = Source.Name;
+                        SET @UpdatedAt = @currentDateTime;
                     END
                     ELSE
                     BEGIN
@@ -331,12 +513,162 @@ databaseChangeLog:
                         WHEN NOT MATCHED THEN
                             INSERT (Name) VALUES (Source.Name)
                         WHEN MATCHED THEN
-                            UPDATE SET UpdatedAt = GETUTCDATE(), Name = @name
+                            UPDATE SET UpdatedAt = @currentDateTime, Name = @name
                         OUTPUT inserted.ArticleId INTO @article;
 
                         SELECT @articleId = ArticleId FROM @article;
                     END
 
-                    EXEC dbo.spArticleTagUpsert @articleId = @articleId, @tags = @tags;
+                    DECLARE @tagsTableToCreate TagList;
+
+                    INSERT INTO @tagsTableToCreate (Id, Name)
+                    EXEC dbo.spTagListUpsert @tags;
+
+                    MERGE @tagsTableToCreate AS TARGET
+                    USING @tags AS SOURCE
+                    ON (TARGET.Name = Source.Name)
+                    WHEN MATCHED THEN
+                        UPDATE SET TARGET.OrderNum = Source.OrderNum;
+
+                    EXEC dbo.spArticleTagUpsert @articleId = @articleId, @tags = @tagsTableToCreate;
+
+                    DECLARE @hash CHAR(64) = dbo.fn_GetHashByTagIdList(@tagsTableToCreate);
+                    DECLARE @concatName NVARCHAR(1024) = dbo.fn_GetConcatNameByTagList(@tagsTableToCreate);
+
+                    MERGE dbo.Article AS TARGET
+                    USING ( 
+                        SELECT @hash AS SHA256Hash 
+                    ) AS SOURCE
+                    ON (Target.ArticleId = @articleId)
+                    WHEN MATCHED THEN
+                        UPDATE SET Name = @name, UpdatedAt = COALESCE(@updatedAt, UpdatedAt), TagsHash = Source.SHA256Hash
+                    OUTPUT inserted.ArticleId, inserted.Name, INSERTED.CreatedAt, INSERTED.UpdatedAt, INSERTED.TagsHash;
+
+                    SELECT Id AS TagId, Name, OrderNum FROM @tagsTableToCreate ORDER BY OrderNum;
+
+                    EXEC dbo.spArticleEventInsert @articleId = @articleId, @articleEventTypeId = 1, @createdAt = @currentDateTime, @tagsHash = @hash, @tagsConcatName = @concatName;
 
                 END;
+
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE PROCEDURE [dbo].[spGetArticlesToBeIndexed]
+                    @batch INT = 100,
+                    @lastProcessedEventId BIGINT
+                AS
+                BEGIN
+                    SET NOCOUNT ON;
+
+                    IF (@batch > 4999)
+                    BEGIN
+                        RAISERROR(
+                            'Batch size "%d" should not be more 4999.',
+                            16,
+                            1,
+                            @batch
+                        )
+                        RETURN -1
+                    END;
+
+                    SELECT TOP(@batch) 
+                    E.ArticleId,
+                    E.TagsHash,
+                    E.TagsConcatName,
+                    E.ArticleEventTypeId,
+                    E.CreatedAt
+                    FROM dbo.ArticleEvent E WITH (NOLOCK)
+                    INNER JOIN dbo.Article A WITH (NOLOCK) ON A.ArticleId = E.ArticleId
+                    WHERE A.Status = 0 AND A.Active = 1;
+                END
+
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE PROCEDURE spSectionUpsertBatch 
+                (
+                    @articleList ArticleList READONLY 
+                )
+                AS 
+                BEGIN 
+                    SET NOCOUNT ON; 
+    
+                    MERGE dbo.Section AS TARGET
+                    USING @articleList AS SOURCE 
+                    ON (TARGET.TagsHash = SOURCE.TagsHash) 
+                    WHEN NOT MATCHED THEN 
+                    INSERT (Name, TagsHash) VALUES (SOURCE.TagsConcatName, SOURCE.TagsHash);
+
+                    DECLARE @sectionsToUpdate TABLE (ArticleId BIGINT, SectionId BIGINT); 
+
+                    INSERT INTO @sectionsToUpdate (ArticleId, SectionId)
+                    SELECT A.ArticleId, S.SectionId 
+                    FROM @articleList A
+                    INNER JOIN dbo.Section S WITH (NOLOCK) ON A.TagsHash = S.TagsHash
+
+                    MERGE dbo.SectionArticle AS TARGET
+                    USING @sectionsToUpdate AS SOURCE 
+                    ON (TARGET.Sectionid != SOURCE.Sectionid AND TARGET.ArticleId = SOURCE.ArticleId) 
+                    WHEN MATCHED AND TARGET.Active = 1 THEN
+                    UPDATE SET Active = 0;
+
+                    MERGE dbo.SectionArticle AS TARGET
+                    USING @sectionsToUpdate AS SOURCE 
+                    ON (TARGET.Sectionid = SOURCE.Sectionid AND TARGET.ArticleId = SOURCE.ArticleId) 
+                    WHEN NOT MATCHED BY TARGET THEN 
+                    INSERT (Sectionid, ArticleId) VALUES (SOURCE.Sectionid, SOURCE.ArticleId)
+                    WHEN MATCHED AND TARGET.Active = 0 THEN
+                    UPDATE SET Active = 1;
+
+                END
+
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE PROCEDURE dbo.spArticleGetById
+                   @articleId BIGINT
+                AS
+                BEGIN
+ 
+                    SET NOCOUNT ON;
+
+                    SELECT 
+                    A.ArticleId, 
+                    A.Name,
+                    A.Active,
+                    A.Status,
+                    A.CreatedAt, 
+                    A.UpdatedAt, 
+                    A.TagsHash 
+                    FROM dbo.Article A WITH (NOLOCK) 
+                    WHERE A.Active = 1 AND A.ArticleId = @articleId;
+
+
+                    SELECT AT.TagId, T.Name, AT.OrderNum 
+                    FROM dbo.ArticleTag AT WITH (NOLOCK)
+                    INNER JOIN Tag T WITH (NOLOCK) ON T.TagId = AT.TagId
+                    WHERE AT.Active = 1 AND AT.ArticleId = @articleId
+                    ORDER BY AT.OrderNum;
+
+                END
+        - sql:
+            dbms: mssql
+            stripComments: true
+            splitStatements: false
+            sql: |
+                CREATE PROCEDURE dbo.spTagGetByIds
+                  @tagIds BigIntValueType READONLY
+                AS
+                BEGIN
+                    SET NOCOUNT ON;
+
+                    SELECT TagId, Name
+                    FROM dbo.Tag T WITH (NOLOCK)
+                    INNER JOIN @tagIds S ON S.Value = T.TagId;
+                END

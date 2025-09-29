@@ -6,4 +6,23 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Elasticsearch.Net" Version="7.17.5" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.9" />
+    <PackageReference Include="NEST" Version="7.17.5" />
+    <PackageReference Include="protobuf-net" Version="3.2.56" />
+    <PackageReference Include="StackExchange.Redis" Version="2.9.17" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Library.Domain\Library.Domain.csproj" />
+    <ProjectReference Include="..\Library.Rest\Library.Rest.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="External\MessageBus\" />
+  </ItemGroup>
+
 </Project>

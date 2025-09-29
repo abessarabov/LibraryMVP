@@ -1,3 +1,14 @@
+
+using Library.Domain.Cache;
+using Library.Domain.ConnectionFactory;
+using Library.Domain.Repositories;
+using Library.Server.Cache.Redis;
+using Library.Server.Connections;
+using Library.Server.External.NoSql.ElasticSearch;
+using Library.Server.Repositories;
+using Library.Server.Services;
+using Microsoft.Data.SqlClient;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -6,6 +17,16 @@ builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddScoped<ITagRepository, TagRepository>();
+builder.Services.AddScoped<IArticleRepository, ArticleRepository>();
+builder.Services.AddScoped<IArticleService, ArticleService>();
+
+builder.Services.AddSingleton<IConnectionFactory<SqlConnection>, SqlConnectionFactory>();
+
+builder.Services.Configure<RedisOptions>(builder.Configuration.GetSection("Redis"));
+builder.Services.AddSingleton<ICache, RedisCache>();
+builder.Services.AddSingleton<IElasticClientFactory, ElasticClientFactory>();
 
 var app = builder.Build();
 
