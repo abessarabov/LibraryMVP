@@ -19,7 +19,9 @@ namespace Library.Server.External.NoSql.ElasticSearch
             var response = await _elasticClient.SearchAsync<Section>(s => s
                 .From((page - 1) * pageSize)
                 .Size(pageSize)
-                .Sort(sort => sort.Ascending(f => f.SectionId))
+                .Sort(sort => sort
+                    .Descending(f => f.SectionArticles.Count)
+                )
                 .TrackTotalHits()
             );
 
@@ -29,6 +31,25 @@ namespace Library.Server.External.NoSql.ElasticSearch
             }
 
             return (response.Documents, response.Total);
+        }
+
+        public async Task<IReadOnlyCollection<SectionArticle>> GetArticlesBySectionAsync(long sectionId, int page, int pageSize)
+        {
+            var response = await _elasticClient.SearchAsync<Section>(s => s
+                .Query(q => q.Term(t => t.SectionId, sectionId))
+                .Source(sf => sf.Includes(f => f.Fields(
+                    f => f.SectionArticles
+                )))
+            );
+
+            var section = response.Documents.FirstOrDefault();
+            if (section == null) return Array.Empty<SectionArticle>();
+
+            return section.SectionArticles
+                          .OrderByDescending(a => a.LastModified)
+                          .Skip((page - 1) * pageSize)
+                          .Take(pageSize)
+                          .ToList();
         }
 
         public async Task PushAsync(Section section)

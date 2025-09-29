@@ -11,5 +11,7 @@ namespace Library.Domain.Entities
         public long TagId { get; set; }
 
         public long SectionId { get; set; }
+
+        public string TagName { get; set; }
     }
 }

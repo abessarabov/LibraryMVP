@@ -13,5 +13,13 @@ namespace Library.Domain.Entities
         public long SectionId { get; set; }
 
         public bool Active { get; set; }
+
+        public string ArticleName { get; set; }
+
+        public DateTime CreatedAt { get; set; }
+
+        public DateTime? UpdatedAt { get; set; }
+
+        public DateTime LastModified => UpdatedAt ?? CreatedAt;
     }
 }

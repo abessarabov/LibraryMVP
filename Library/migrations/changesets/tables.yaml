@@ -589,42 +589,132 @@ databaseChangeLog:
             stripComments: true
             splitStatements: false
             sql: |
-                CREATE PROCEDURE spSectionUpsertBatch 
+                CREATE PROCEDURE dbo.spSectionUpsertBatch
                 (
                     @articleList ArticleList READONLY 
                 )
                 AS 
                 BEGIN 
                     SET NOCOUNT ON; 
-    
+
+                    DECLARE @sectionsToUpdate TABLE (ArticleId BIGINT, SectionId BIGINT); 
+                    DECLARE @affectedSections TABLE (SectionId BIGINT);
+
                     MERGE dbo.Section AS TARGET
                     USING @articleList AS SOURCE 
                     ON (TARGET.TagsHash = SOURCE.TagsHash) 
                     WHEN NOT MATCHED THEN 
-                    INSERT (Name, TagsHash) VALUES (SOURCE.TagsConcatName, SOURCE.TagsHash);
-
-                    DECLARE @sectionsToUpdate TABLE (ArticleId BIGINT, SectionId BIGINT); 
+                        INSERT (Name, TagsHash) VALUES (SOURCE.TagsConcatName, SOURCE.TagsHash);
 
                     INSERT INTO @sectionsToUpdate (ArticleId, SectionId)
                     SELECT A.ArticleId, S.SectionId 
                     FROM @articleList A
                     INNER JOIN dbo.Section S WITH (NOLOCK) ON A.TagsHash = S.TagsHash
 
-                    MERGE dbo.SectionArticle AS TARGET
-                    USING @sectionsToUpdate AS SOURCE 
-                    ON (TARGET.Sectionid != SOURCE.Sectionid AND TARGET.ArticleId = SOURCE.ArticleId) 
-                    WHEN MATCHED AND TARGET.Active = 1 THEN
-                    UPDATE SET Active = 0;
+                    INSERT INTO @affectedSections (SectionId)
+                    SELECT SectionId FROM @sectionsToUpdate;
+
+                    UPDATE SA
+                    SET SA.Active = 0
+                    OUTPUT inserted.SectionId INTO @affectedSections
+                    FROM dbo.SectionArticle SA
+                    INNER JOIN @sectionsToUpdate SU ON SA.ArticleId = SU.ArticleId
+                    WHERE SA.SectionId != SU.SectionId AND SA.Active = 1
 
                     MERGE dbo.SectionArticle AS TARGET
-                    USING @sectionsToUpdate AS SOURCE 
-                    ON (TARGET.Sectionid = SOURCE.Sectionid AND TARGET.ArticleId = SOURCE.ArticleId) 
-                    WHEN NOT MATCHED BY TARGET THEN 
-                    INSERT (Sectionid, ArticleId) VALUES (SOURCE.Sectionid, SOURCE.ArticleId)
+                    USING @sectionsToUpdate AS SOURCE
+                        ON TARGET.SectionId = SOURCE.SectionId
+                       AND TARGET.ArticleId = SOURCE.ArticleId
                     WHEN MATCHED AND TARGET.Active = 0 THEN
-                    UPDATE SET Active = 1;
+                        UPDATE SET TARGET.Active = 1
+                    WHEN NOT MATCHED THEN
+                        INSERT (SectionId, ArticleId) VALUES (SOURCE.SectionId, SOURCE.ArticleId)
+                    OUTPUT inserted.SectionId INTO @affectedSections;
 
-                END
+                    UPDATE A
+                    SET A.Status = 1
+                    FROM dbo.Article A
+                    INNER JOIN @articleList AL ON A.ArticleId = AL.ArticleId;
+
+                    DECLARE SectionCursor CURSOR FOR
+                        SELECT S.SectionId, S.Name, S.TagsHash, S.Active
+                        FROM dbo.Section S WITH (NOLOCK)
+                        INNER JOIN @affectedSections T ON T.SectionId = S.SectionId
+                        GROUP BY S.SectionId, S.Name, S.TagsHash, S.Active;
+                    OPEN SectionCursor;
+
+                    DECLARE @sectionId BIGINT;
+                    DECLARE @name NVARCHAR(1024);
+                    DECLARE @tagsHash CHAR(64);
+                    DECLARE @active BIT;
+                    DECLARE @articleCount INT;
+
+                    FETCH NEXT FROM SectionCursor INTO @sectionId, @name, @tagsHash, @active;
+    
+   
+
+                    WHILE @@FETCH_STATUS = 0
+                    BEGIN
+        
+                        SET NOCOUNT OFF; 
+
+                        DECLARE @rowCount INT = 0; 
+
+                        DECLARE @sectionArticleResult TABLE(ArticleId BIGINT, SectionId BIGINT, Active BIT, ArticleName NVARCHAR(256), CreatedAt DATETIME2, UpdatedAt DATETIME2);
+
+                        INSERT INTO @sectionArticleResult (ArticleId, SectionId, Active, ArticleName, CreatedAt, UpdatedAt)
+                        SELECT 
+                            SA.ArticleId, 
+                            SA.SectionId, 
+                            SA.Active, 
+                            A.Name AS ArticleName, 
+                            A.CreatedAt, 
+                            A.UpdatedAt
+                        FROM dbo.SectionArticle SA WITH (NOLOCK)
+                        INNER JOIN Article A WITH (NOLOCK) ON SA.ArticleId = A.ArticleId
+                        WHERE SA.SectionId = @sectionId AND SA.Active = 1 AND A.Active = 1;
+
+                        SET @rowCount = @@ROWCOUNT;
+
+                        SELECT @sectionId AS SectionId, @name AS Name, @tagsHash AS TagsHash, @active AS Active, @rowCount AS ArticleCount;
+
+                        SELECT SA.ArticleId, SA.SectionId, SA.Active, SA.ArticleName, SA.CreatedAt, SA.UpdatedAt
+                        FROM @sectionArticleResult SA;
+
+                        SET NOCOUNT ON; 
+
+                        -- Complete SectionTag and return 
+                        -- TODO Check performance later and make refactoring
+                        --DECLARE @firstArticleId BIGINT;
+                        --SELECT TOP (1) @firstArticleId = ArticleId FROM @sectionArticleResult
+
+                        --DELETE FROM dbo.SectionTag WHERE SectionId = @sectionId;
+
+                        --MERGE dbo.SectionTag AS TARGET
+                        --USING (
+                        --    SELECT TagId FROM dbo.ArticleTag AT WITH (NOLOCK)
+                        --    WHERE AT.Active = 1 AND AT.ArticleId = @firstArticleId
+                        --) AS SOURCE
+                        --    ON TARGET.SectionId = @sectionId
+                        --    AND TARGET.TagId = SOURCE.TagId
+                        --WHEN NOT MATCHED THEN
+                        --    INSERT (SectionId, TagId) VALUES (@sectionId, SOURCE.TagId);
+
+                        --SELECT SA.SectionId, SA.TagId, T.Name AS TagName
+                        --FROM dbo.SectionTag SA WITH (NOLOCK)
+                        --INNER JOIN dbo.Tag T WITH (NOLOCK) ON SA.TagId = T.TagId
+                        --WHERE SA.SectionId = @sectionId;
+
+                        DELETE FROM @sectionArticleResult;
+
+                        FETCH NEXT FROM SectionCursor INTO @sectionId, @name, @tagsHash, @active;
+                    END
+    
+                    CLOSE SectionCursor;
+                    DEALLOCATE SectionCursor;
+
+
+                END;
 
         - sql:
             dbms: mssql
@@ -648,7 +738,6 @@ databaseChangeLog:
                     A.TagsHash 
                     FROM dbo.Article A WITH (NOLOCK) 
                     WHERE A.Active = 1 AND A.ArticleId = @articleId;
-
 
                     SELECT AT.TagId, T.Name, AT.OrderNum 
                     FROM dbo.ArticleTag AT WITH (NOLOCK)

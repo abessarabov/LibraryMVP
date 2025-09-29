@@ -10,6 +10,8 @@
 
         public bool Active { get; set; }
 
+        public int ArticleCount { get; set; }
+
         public ICollection<SectionTag> SectionTags { get; set; } = new List<SectionTag>();
 
         public ICollection<SectionArticle> SectionArticles { get; set; } = new List<SectionArticle>();
