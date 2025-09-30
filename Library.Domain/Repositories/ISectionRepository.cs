@@ -4,6 +4,6 @@ namespace Library.Domain.Repositories
 {
     public interface ISectionRepository
     {
-        Task<List<Section>> SectionUpsertBatch(IEnumerable<ArticleBatchItem> articleBatchItems);
+        Task<List<Section>> SectionUpsertBatchAsync(IEnumerable<ArticleBatchItem> articleBatchItems);
     }
 }

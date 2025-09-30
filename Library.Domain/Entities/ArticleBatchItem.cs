@@ -9,6 +9,8 @@ namespace Library.Domain.Entities
 {
     public class ArticleBatchItem
     {
+        public long EventId { get; set; }
+
         public long ArticleId { get; set; }
 
         public string TagsHash { get; set; }

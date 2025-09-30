@@ -4,6 +4,6 @@ namespace Library.Domain.Repositories
 {
     public interface ITagRepository
     {
-        Task<List<Tag>> ResolveTagNames(IEnumerable<long> tagIds);
+        Task<List<Tag>> ResolveTagNames(IEnumerable<long> tagIds, CancellationToken cancellationToken = default);
     }
 }

@@ -23,5 +23,12 @@ namespace Library.Server.Connections
             connection.Open();
             return connection;
         }
+
+        public async Task<SqlConnection> CreateConnectionAsync(CancellationToken cancellationToken)
+        {
+            var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+            return connection;
+        }
     }
 }

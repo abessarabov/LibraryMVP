@@ -6,6 +6,6 @@ namespace Library.Domain.Repositories
     {
         Task<Article> AddOrUpdateAsync(long? articleId, string name, IEnumerable<string> tagNames);
 
-        Task<Article> GetByIdAsync(long articleId);
+        Task<Article> GetByIdAsync(long articleId, CancellationToken cancellationToken = default);
     }
 }

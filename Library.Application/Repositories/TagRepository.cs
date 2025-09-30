@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using System.Data;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using System.Threading;
 
 
 namespace Library.Server.Repositories
@@ -20,9 +21,9 @@ namespace Library.Server.Repositories
         }
 
 
-        public async Task<List<Tag>> ResolveTagNames(IEnumerable<long> tagIds)
+        public async Task<List<Tag>> ResolveTagNames(IEnumerable<long> tagIds, CancellationToken cancellationToken)
         {
-            await using var conn = _connectionFactory.CreateConnection();
+            await using var conn = await _connectionFactory.CreateConnectionAsync(cancellationToken);
 
             await using var cmd = new SqlCommand("spTagGetByIds", conn)
             {

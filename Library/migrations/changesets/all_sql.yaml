@@ -562,7 +562,7 @@
                     ON (Target.ArticleId = @articleId)
                     WHEN MATCHED THEN
                         UPDATE SET Name = @name, UpdatedAt = COALESCE(@updatedAt, UpdatedAt), TagsHash = Source.SHA256Hash
-                    OUTPUT inserted.ArticleId, inserted.Name, INSERTED.CreatedAt, INSERTED.UpdatedAt, INSERTED.TagsHash;
+                    OUTPUT inserted.ArticleId, inserted.Active, inserted.Status, inserted.Name, INSERTED.CreatedAt, INSERTED.UpdatedAt, INSERTED.TagsHash;
 
                     -- в качестве output возвращаем тэги статьи
                     SELECT Id AS TagId, Name, OrderNum FROM @tagsTableToCreate ORDER BY OrderNum;
@@ -604,7 +604,8 @@
 
                     -- читаем события из таблицы ArticleEvent со статусом 0. Значит - это новые созданные статьи
                     -- TODO события, если статья была изменена - мы игнорируем пока тут. Логика их обработки будет в другом месте 
-                    SELECT TOP(@batch) 
+                    SELECT TOP(@batch)
+                    E.EventId,
                     E.ArticleId,
                     E.TagsHash,
                     E.TagsConcatName,
@@ -612,7 +613,7 @@
                     E.CreatedAt
                     FROM dbo.ArticleEvent E WITH (NOLOCK)
                     INNER JOIN dbo.Article A WITH (NOLOCK) ON A.ArticleId = E.ArticleId
-                    WHERE A.Status = 0 AND A.Active = 1;
+                    WHERE A.Status = 0 AND A.Active = 1 AND E.EventId > @lastProcessedEventId;
                 END
 
         - sql:
@@ -646,7 +647,7 @@
                     ON (TARGET.TagsHash = SOURCE.TagsHash) 
                     WHEN NOT MATCHED THEN 
                         INSERT (Name, TagsHash) VALUES (SOURCE.TagsConcatName, SOURCE.TagsHash)
-                    OUTPUT inserted.SectionId, inserted.TagsHash, SOURCE.ArticleId  INTO @newSections;
+                    OUTPUT inserted.SectionId, SOURCE.ArticleId, inserted.TagsHash INTO @newSections;
            
                     -- копируем теши из оригинальной статьи в таблицу SectionTag
                     INSERT INTO dbo.SectionTag (SectionId, TagId)

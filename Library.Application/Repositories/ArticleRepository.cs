@@ -3,6 +3,7 @@ using Library.Domain.Entities;
 using Library.Domain.Repositories;
 using Microsoft.Data.SqlClient;
 using System.Data;
+using System.Threading;
 
 namespace Library.Server.Repositories
 {
@@ -15,9 +16,9 @@ namespace Library.Server.Repositories
             _connectionFactory = connectionFactory;
         }
 
-        public async Task<Article> GetByIdAsync(long articleId)
+        public async Task<Article> GetByIdAsync(long articleId, CancellationToken cancellationToken)
         {
-            await using var conn = _connectionFactory.CreateConnection();
+            await using var conn = await _connectionFactory.CreateConnectionAsync(cancellationToken);
 
             await using var cmd = new SqlCommand("spArticleGetById", conn)
             {
@@ -26,14 +27,14 @@ namespace Library.Server.Repositories
 
             cmd.Parameters.AddWithValue("@articleId", articleId);
 
-            await using var reader = await cmd.ExecuteReaderAsync();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
 
             return await ReadArticleFromDB(reader);
         }
 
         public async Task<Article> AddOrUpdateAsync(long? articleId, string name, IEnumerable<string> tagNames)
         {
-            await using var conn = _connectionFactory.CreateConnection();
+            await using var conn = await _connectionFactory.CreateConnectionAsync();
 
             await using var cmd = new SqlCommand("spArticleUpsert", conn)
             {

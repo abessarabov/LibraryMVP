@@ -9,7 +9,7 @@ namespace Library.Server.Services
 {
     public interface IArticleService
     {
-        Task<ArticleRest> GetByIdAsync(long id);
+        Task<ArticleRest> GetByIdAsync(long id, CancellationToken cancellationToken = default);
 
         Task<ArticleRest> CreateAsync(CreateArticleRequest req);
 

@@ -1,4 +1,5 @@
-﻿using Library.Domain.Cache;
+﻿using Azure.Core;
+using Library.Domain.Cache;
 using Library.Domain.Entities;
 using Library.Domain.Repositories;
 using Library.Rest.Contracts.Article;
@@ -30,7 +31,16 @@ namespace Library.Server.Services
 
         public async Task<ArticleRest> AddOrUpdateAsync(long? articleId, string name, List<string> tagNames)
         {
-            Article newArticle = await _articleRepository.AddOrUpdateAsync(articleId, name, tagNames);
+            var normalizedTags = tagNames
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(NormalizeTag)
+                .ToHashSet()
+                .ToList();
+
+            if (!normalizedTags.Any())
+                throw new ArgumentException("Нужно указать хотя бы один тег");
+
+            Article newArticle = await _articleRepository.AddOrUpdateAsync(articleId, name, normalizedTags);
 
             await _cache.SetAsync(CacheKeyBuilder.Article(newArticle.ArticleId), newArticle);
 
@@ -39,17 +49,22 @@ namespace Library.Server.Services
                 Name = newArticle.Name, 
                 CreatedAt = newArticle.CreatedAt, 
                 UpdatedAt = newArticle.UpdatedAt,
-                TagNames = tagNames 
+                TagNames = normalizedTags
             };
         }
 
-        public async Task<ArticleRest> GetByIdAsync(long artickeId)
+        public async Task<ArticleRest> GetByIdAsync(long artickleId, CancellationToken cancellationToken)
         {
-            Article? article = await _cache.GetAsync<Article>(CacheKeyBuilder.Article(artickeId));
+            Article? article = await _cache.GetAsync<Article>(CacheKeyBuilder.Article(artickleId));
 
             if (article == null)
             {
-                article = await _articleRepository.GetByIdAsync(artickeId);
+                article = await _articleRepository.GetByIdAsync(artickleId, cancellationToken);
+
+                if (article == null)
+                {
+                    throw new KeyNotFoundException($"Article with Id {artickleId} not found.");
+                }
 
                 await _cache.SetAsync(CacheKeyBuilder.Article(article.ArticleId), article);
             }
@@ -63,13 +78,14 @@ namespace Library.Server.Services
 
 
             //TODO STORE Tag Names in cache
-            List<Tag> tags = await _tagRepository.ResolveTagNames(article.ArticleTags.Select(x => x.TagId));
+            List<Tag> tags = await _tagRepository.ResolveTagNames(article.ArticleTags.Select(x => x.TagId), cancellationToken);
 
             restContract.TagNames = [.. tags.Select(x => x.Name)];
 
             return restContract;
         }
 
+        string NormalizeTag(string tag) => tag.Trim().ToLowerInvariant();
 
     }
 }
