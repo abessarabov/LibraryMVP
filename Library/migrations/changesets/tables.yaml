@@ -1,4 +1,4 @@
-databaseChangeLog:
+﻿databaseChangeLog:
   - changeSet:
       id: tbl-001-create-tables
       author: alexey
@@ -327,9 +327,12 @@ databaseChangeLog:
       changes:
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Простая функция для вычисления хэша SHA2_256 для статьи
+                */
                 CREATE FUNCTION fn_GetHashByTagIdList
                 (
                   @tagList TagList READONLY
@@ -350,9 +353,12 @@ databaseChangeLog:
                 END;
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Простая функция для вычисления имени раздела
+                */
                 CREATE FUNCTION fn_GetConcatNameByTagList
                 (
                   @tagList TagList READONLY
@@ -374,9 +380,14 @@ databaseChangeLog:
       changes:
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Процедура записывает событие в таблицу ArticleEvent.
+                  Идея иметь чёткую последовательность событий, чтобы можно было потом использовать ArticleEventId 
+                  для определения, какое событие новее при параллельной обработке, например, индексации в эластик. Если ID статьи совпадёт.
+                */
                 CREATE PROCEDURE [dbo].[spArticleEventInsert]
                     @articleId BIGINT, 
                     @articleEventTypeId TINYINT,
@@ -391,9 +402,13 @@ databaseChangeLog:
                 END
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Процедура создаёт недостающие теги в системе на основе name из TagList.
+                  Результатом процедуры является список TagId, Name соответствующий входному списку
+                */
                 CREATE PROCEDURE [dbo].[spTagListUpsert]
                   @tags TagList READONLY
                 AS
@@ -419,9 +434,13 @@ databaseChangeLog:
                 END;
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Процедура принимает articleId и tags для работы с таблицей ArticleTag.
+                  Принимает name, tags и articleId
+                */
                 CREATE PROCEDURE [dbo].[spArticleTagUpsert]
                   @articleId BIGINT,
                   @tags TagList READONLY
@@ -448,9 +467,13 @@ databaseChangeLog:
                 END;
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Основная хранимая процедура по управлению статьями
+                  Принимает name, tags и articleId
+                */
                 CREATE PROCEDURE [dbo].[spArticleUpsert]
                   @name NVARCHAR(256),
                   @tags TagList READONLY,
@@ -458,6 +481,7 @@ databaseChangeLog:
                 AS
                 BEGIN
 
+                    -- секция проверок на различные бизнесс ошибки, можно их будет обрабатывать в коде
                     IF (@articleId IS NOT NULL AND NOT EXISTS(SELECT 1 FROM dbo.Article A WITH (NOLOCK) WHERE @articleId = A.ArticleId  ))
                     BEGIN
                         RAISERROR(
@@ -476,10 +500,10 @@ databaseChangeLog:
                             1,
                             @articleId
                         )
-                        RETURN -1
+                        RETURN -2
                     END
 
-                    IF (EXISTS(SELECT 1 FROM dbo.Article A WITH (NOLOCK) WHERE (@articleId IS NULL AND @name = A.Name) OR (@articleId IS NOT NULL AND  @name = A.Name AND @articleId != A.ArticleId AND A.Active = 1))))
+                    IF (EXISTS(SELECT 1 FROM dbo.Article A WITH (NOLOCK) WHERE (@articleId IS NULL AND @name = A.Name) OR (@articleId IS NOT NULL AND  @name = A.Name AND @articleId != A.ArticleId AND A.Active = 1)))
                     BEGIN
                         RAISERROR(
                             'Article with name "%s" already exists.',
@@ -487,54 +511,50 @@ databaseChangeLog:
                             1,
                             @name
                         )
-                        RETURN -1
+                        RETURN -3
                     END
 
+                    -- собираем текущее время
                     DECLARE @currentDateTime DATETIME2 = GETUTCDATE();
-                    DECLARE @UpdatedAt DATETIME2 = NULL;
+                    DECLARE @updatedAt DATETIME2 = NULL;
 
+                    -- TODO требуется рефакторинг. Создаём пустую статью для дальнейшего обновления
                     IF (@articleId IS NOT NULL)
                     BEGIN
-                        SET @UpdatedAt = @currentDateTime;
+                        SET @updatedAt = @currentDateTime;
                     END
                     ELSE
                     BEGIN
 
-                        DECLARE @article TABLE (
-                            ArticleId BIGINT
-                        )
-
-                        MERGE dbo.Article AS TARGET
-                        USING ( 
-                            SELECT @name AS Name 
-                        ) AS SOURCE
-
-                        ON (Target.Name = Source.Name)
-                        WHEN NOT MATCHED THEN
-                            INSERT (Name) VALUES (Source.Name)
-                        WHEN MATCHED THEN
-                            UPDATE SET UpdatedAt = @currentDateTime, Name = @name
-                        OUTPUT inserted.ArticleId INTO @article;
-
-                        SELECT @articleId = ArticleId FROM @article;
+                        INSERT INTO dbo.Article (Name) VALUES (@name)
+                        SET @articleId = SCOPE_IDENTITY();
                     END
 
+                    -- будем формировать теги
                     DECLARE @tagsTableToCreate TagList;
 
+                    -- процедура нам создаст недостающие тэги в таблице Tag. 
+                    -- оутпут процедуры - упорядоченный список тегов (Id, Name) которые соответствуют входному листу tags
                     INSERT INTO @tagsTableToCreate (Id, Name)
                     EXEC dbo.spTagListUpsert @tags;
 
+                    -- проставляем порядок тегов, согласно входному листу tags
                     MERGE @tagsTableToCreate AS TARGET
                     USING @tags AS SOURCE
                     ON (TARGET.Name = Source.Name)
                     WHEN MATCHED THEN
                         UPDATE SET TARGET.OrderNum = Source.OrderNum;
 
+                    -- проставляем теги для статьи в таблице ArticleTag
                     EXEC dbo.spArticleTagUpsert @articleId = @articleId, @tags = @tagsTableToCreate;
 
+                    -- считаем хэш по последовательности тегов нашей статьи. Берем TagId
                     DECLARE @hash CHAR(64) = dbo.fn_GetHashByTagIdList(@tagsTableToCreate);
+                    -- считаем имя возможного раздела для отправки в таблицу с событиями. По последовательности тегов нашей статьи. Берем TagName
                     DECLARE @concatName NVARCHAR(1024) = dbo.fn_GetConcatNameByTagList(@tagsTableToCreate);
 
+                    -- выставляем хэш, имя, время обновления для статьи
+                    -- в качестве output возвращаем данные статьи, необходимые для заполнения модели
                     MERGE dbo.Article AS TARGET
                     USING ( 
                         SELECT @hash AS SHA256Hash 
@@ -544,17 +564,25 @@ databaseChangeLog:
                         UPDATE SET Name = @name, UpdatedAt = COALESCE(@updatedAt, UpdatedAt), TagsHash = Source.SHA256Hash
                     OUTPUT inserted.ArticleId, inserted.Name, INSERTED.CreatedAt, INSERTED.UpdatedAt, INSERTED.TagsHash;
 
+                    -- в качестве output возвращаем тэги статьи
                     SELECT Id AS TagId, Name, OrderNum FROM @tagsTableToCreate ORDER BY OrderNum;
 
+                    -- создаём событие, что статья создана, для дальнейшей индексации
                     EXEC dbo.spArticleEventInsert @articleId = @articleId, @articleEventTypeId = 1, @createdAt = @currentDateTime, @tagsHash = @hash, @tagsConcatName = @concatName;
 
                 END;
 
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Идея хранимой процедуры - наполнять очередь на обработку новых/обновлённых статей.
+                  Принимает batch, позволяющий регулировать скорость чтения событий, а так же lastProcessedEventId
+                   - lastProcessedEventId - идея хранить этот параметр локально в кэше воркера, обновлять при завершении одной итерации. 
+                   - В данный момент не хранится в базе. TODO
+                */
                 CREATE PROCEDURE [dbo].[spGetArticlesToBeIndexed]
                     @batch INT = 100,
                     @lastProcessedEventId BIGINT
@@ -562,6 +590,7 @@ databaseChangeLog:
                 BEGIN
                     SET NOCOUNT ON;
 
+                    -- Батчи больше 5000 в SQL уже не оптимальны
                     IF (@batch > 4999)
                     BEGIN
                         RAISERROR(
@@ -573,6 +602,8 @@ databaseChangeLog:
                         RETURN -1
                     END;
 
+                    -- читаем события из таблицы ArticleEvent со статусом 0. Значит - это новые созданные статьи
+                    -- TODO события, если статья была изменена - мы игнорируем пока тут. Логика их обработки будет в другом месте 
                     SELECT TOP(@batch) 
                     E.ArticleId,
                     E.TagsHash,
@@ -586,9 +617,16 @@ databaseChangeLog:
 
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Хранимая процедура для апдейта/вставки разделов батчами.
+                  Принимает TVP ArticleList, в котором есть уже подготовленные ArticleId, TagsConcatName и TagsHash
+                   - TagsConcatName - будущее имя раздела, полученные функцией 
+                   - TagsHash - хэш тегов статьи
+                   - ArticleId - Id новой созданной статьи
+                */
                 CREATE PROCEDURE dbo.spSectionUpsertBatch
                 (
                     @articleList ArticleList READONLY 
@@ -599,21 +637,37 @@ databaseChangeLog:
 
                     DECLARE @sectionsToUpdate TABLE (ArticleId BIGINT, SectionId BIGINT); 
                     DECLARE @affectedSections TABLE (SectionId BIGINT);
+                    DECLARE @newSections TABLE (SectionId BIGINT, ArticleId BIGINT, TagsHash CHAR(64));
 
+                    -- на основе ArticleList по TagsHash ищем разделы, и создаём новые, если отсутствуют. 
+                    -- собираем OUTPUT чтобы скопировать теги статьи в новый раздел
                     MERGE dbo.Section AS TARGET
                     USING @articleList AS SOURCE 
                     ON (TARGET.TagsHash = SOURCE.TagsHash) 
                     WHEN NOT MATCHED THEN 
-                        INSERT (Name, TagsHash) VALUES (SOURCE.TagsConcatName, SOURCE.TagsHash);
-
+                        INSERT (Name, TagsHash) VALUES (SOURCE.TagsConcatName, SOURCE.TagsHash)
+                    OUTPUT inserted.SectionId, inserted.TagsHash, SOURCE.ArticleId  INTO @newSections;
+           
+                    -- копируем теши из оригинальной статьи в таблицу SectionTag
+                    INSERT INTO dbo.SectionTag (SectionId, TagId)
+                    SELECT NS.SectionId, AT.TagId
+                    FROM dbo.ArticleTag AT WITH (NOLOCK)
+                    INNER JOIN @newSections NS ON NS.ArticleId = AT.ArticleId
+                    WHERE AT.Active = 1;
+                    
+                    -- собираем данные по разделам, статьи которых были в этом батче для последующего их редактирования
+                    -- т.к. @newSections содержит только новые разделы, нам надо получить те разделы, которым соответствую статьи в батче
                     INSERT INTO @sectionsToUpdate (ArticleId, SectionId)
                     SELECT A.ArticleId, S.SectionId 
                     FROM @articleList A
                     INNER JOIN dbo.Section S WITH (NOLOCK) ON A.TagsHash = S.TagsHash
 
+                    -- формируем общую таблицу, которая будет содержать разделы, которые нужно обновить и новые созданные
                     INSERT INTO @affectedSections (SectionId)
                     SELECT SectionId FROM @sectionsToUpdate;
 
+                    -- идём по существующим секциям и выставляем Active = 0, если изменилась статья, находящаяся в этом разделе
+                    -- собираем ID разделов для последующей переиндексации
                     UPDATE SA
                     SET SA.Active = 0
                     OUTPUT inserted.SectionId INTO @affectedSections
@@ -621,6 +675,9 @@ databaseChangeLog:
                     INNER JOIN @sectionsToUpdate SU ON SA.ArticleId = SU.ArticleId
                     WHERE SA.SectionId != SU.SectionId AND SA.Active = 1
 
+                    -- идём по существующим секциям и выставляем Active = 1, если статья стала соответствовать разделу и была уже отсюда перемещена
+                    -- либо добавляем статью в раздел
+                    -- оутпут так же собираем для переиндексации.
                     MERGE dbo.SectionArticle AS TARGET
                     USING @sectionsToUpdate AS SOURCE
                         ON TARGET.SectionId = SOURCE.SectionId
@@ -631,11 +688,15 @@ databaseChangeLog:
                         INSERT (SectionId, ArticleId) VALUES (SOURCE.SectionId, SOURCE.ArticleId)
                     OUTPUT inserted.SectionId INTO @affectedSections;
 
+                    -- выставляем Status = 1 для статей, т.к. они были нами "Проиндексированы" на уровне базы. 
+                    -- статус носит предварительный характер, чтобы те же самые данные не индексировались много раз
                     UPDATE A
                     SET A.Status = 1
                     FROM dbo.Article A
                     INNER JOIN @articleList AL ON A.ArticleId = AL.ArticleId;
 
+                    -- теперь нам надо собрать репорт для воркера, который будет содержать метаданные для дальнейшей индексации данных вне БД
+                    -- мы идём по затронутым разделам, выдаём метадату раздела, считаем количество статей в нём и выдаём список тегов
                     DECLARE SectionCursor CURSOR FOR
                         SELECT S.SectionId, S.Name, S.TagsHash, S.Active
                         FROM dbo.Section S WITH (NOLOCK)
@@ -650,18 +711,18 @@ databaseChangeLog:
                     DECLARE @articleCount INT;
 
                     FETCH NEXT FROM SectionCursor INTO @sectionId, @name, @tagsHash, @active;
-    
-   
 
                     WHILE @@FETCH_STATUS = 0
                     BEGIN
         
+                        -- включаем каунтер, чтобы считал только статьи
                         SET NOCOUNT OFF; 
 
                         DECLARE @rowCount INT = 0; 
 
                         DECLARE @sectionArticleResult TABLE(ArticleId BIGINT, SectionId BIGINT, Active BIT, ArticleName NVARCHAR(256), CreatedAt DATETIME2, UpdatedAt DATETIME2);
 
+                        -- сначала соберем статьи, относящиеся к разделу, чтобы посчитать их количество
                         INSERT INTO @sectionArticleResult (ArticleId, SectionId, Active, ArticleName, CreatedAt, UpdatedAt)
                         SELECT 
                             SA.ArticleId, 
@@ -676,34 +737,21 @@ databaseChangeLog:
 
                         SET @rowCount = @@ROWCOUNT;
 
+                        -- выводим метаданные раздела
                         SELECT @sectionId AS SectionId, @name AS Name, @tagsHash AS TagsHash, @active AS Active, @rowCount AS ArticleCount;
 
+                        -- выводи данные по статьям
                         SELECT SA.ArticleId, SA.SectionId, SA.Active, SA.ArticleName, SA.CreatedAt, SA.UpdatedAt
                         FROM @sectionArticleResult SA;
 
+                        -- отключаем каунтер, чтобы считал только статьи
                         SET NOCOUNT ON; 
 
-                        -- Complete SectionTag and return 
-                        -- TODO Check performance later and make refactoring
-                        --DECLARE @firstArticleId BIGINT;
-                        --SELECT TOP (1) @firstArticleId = ArticleId FROM @sectionArticleResult
-
-                        --DELETE FROM dbo.SectionTag WHERE SectionId = @sectionId;
-
-                        --MERGE dbo.SectionTag AS TARGET
-                        --USING (
-                        --    SELECT TagId FROM dbo.ArticleTag AT WITH (NOLOCK)
-                        --    WHERE AT.Active = 1 AND AT.ArticleId = @firstArticleId
-                        --) AS SOURCE
-                        --    ON TARGET.SectionId = @sectionId
-                        --    AND TARGET.TagId = SOURCE.TagId
-                        --WHEN NOT MATCHED THEN
-                        --    INSERT (SectionId, TagId) VALUES (@sectionId, SOURCE.TagId);
-
-                        --SELECT SA.SectionId, SA.TagId, T.Name AS TagName
-                        --FROM dbo.SectionTag SA WITH (NOLOCK)
-                        --INNER JOIN dbo.Tag T WITH (NOLOCK) ON SA.TagId = T.TagId
-                        --WHERE SA.SectionId = @sectionId;
+                        -- выводи данные по тегам статьи
+                        SELECT SA.SectionId, SA.TagId, T.Name AS TagName
+                        FROM dbo.SectionTag SA WITH (NOLOCK)
+                        INNER JOIN dbo.Tag T WITH (NOLOCK) ON SA.TagId = T.TagId
+                        WHERE SA.SectionId = @sectionId;
 
                         DELETE FROM @sectionArticleResult;
 
@@ -713,14 +761,16 @@ databaseChangeLog:
                     CLOSE SectionCursor;
                     DEALLOCATE SectionCursor;
 
-
                 END;
 
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Хранимая процедура для получения статьи и тэгов статьи
+                */
                 CREATE PROCEDURE dbo.spArticleGetById
                    @articleId BIGINT
                 AS
@@ -748,9 +798,13 @@ databaseChangeLog:
                 END
         - sql:
             dbms: mssql
-            stripComments: true
+            stripComments: false
             splitStatements: false
             sql: |
+                /*
+                  Хранимая процедура для получения тэгов по tagIds. Может понадобиться для Resolve Tags, 
+                  так как держать имена тегов в памяти не оптимально, можно кэшировать на стороне сервиса
+                */
                 CREATE PROCEDURE dbo.spTagGetByIds
                   @tagIds BigIntValueType READONLY
                 AS
