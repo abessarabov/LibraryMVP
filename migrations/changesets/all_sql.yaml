@@ -650,7 +650,7 @@
                         INSERT (Name, TagsHash) VALUES (SOURCE.TagsConcatName, SOURCE.TagsHash)
                     OUTPUT inserted.SectionId, SOURCE.ArticleId, inserted.TagsHash INTO @newSections;
            
-                    -- копируем теши из оригинальной статьи в таблицу SectionTag
+                    -- копируем хеши из оригинальной статьи в таблицу SectionTag
                     INSERT INTO dbo.SectionTag (SectionId, TagId)
                     SELECT NS.SectionId, AT.TagId
                     FROM dbo.ArticleTag AT WITH (NOLOCK)
