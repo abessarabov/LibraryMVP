@@ -15,17 +15,17 @@ WORKDIR /src
 COPY ["Library.Rest/Library.Rest.csproj", "Library.Rest/"]
 COPY ["Library.Server/Library.Server.csproj", "Library.Server/"]
 COPY ["Library.Domain/Library.Domain.csproj", "Library.Domain/"]
-COPY ["Library/Library.Web.csproj", "Library/"]
+COPY ["Library.Web/Library.Web.csproj", "Library.Web/"]
 
-RUN dotnet restore "Library/Library.Web.csproj"
+RUN dotnet restore "Library.Web/Library.Web.csproj"
 COPY . .
 WORKDIR "/src/."
-RUN dotnet build "Library/Library.Web.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "Library.Web/Library.Web.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 # This stage is used to publish the service project to be copied to the final stage
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "Library/Library.Web.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "Library.Web/Library.Web.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 
 # This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
 FROM base AS final

@@ -77,7 +77,7 @@ services:
     container_name: myapi
     build:
       context: .
-      dockerfile: ./Library/Dockerfile
+      dockerfile: ./Library.Web/Dockerfile
     ports:
       - "5000:8080"
     depends_on:
