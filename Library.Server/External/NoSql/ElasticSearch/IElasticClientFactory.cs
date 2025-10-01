@@ -10,5 +10,9 @@ namespace Library.Server.External.NoSql.ElasticSearch
     public interface IElasticClientFactory
     {
         IElasticClient CreateClient();
+
+        int GetElasticBatchSize();
+
+        int GetElasticDegreeOfParallelism();
     }
 }

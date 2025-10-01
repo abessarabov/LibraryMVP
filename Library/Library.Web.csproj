@@ -17,8 +17,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Library.Application\Library.Server.csproj" />
     <ProjectReference Include="..\Library.Rest\Library.Rest.csproj" />
+    <ProjectReference Include="..\Library.Server\Library.Server.csproj" />
   </ItemGroup>
 
 </Project>

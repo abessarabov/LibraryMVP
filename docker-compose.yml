@@ -72,22 +72,23 @@ services:
   # -----------------------
   # .NET API
   # -----------------------
-  # api:
-  #   image: mcr.microsoft.com/dotnet/aspnet:8.0
-  #   container_name: myapi
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "5000:80"
-  #   depends_on:
-  #     - mssql
-  #     - elasticsearch
-  #     - redis
-  #   environment:
-  #     ConnectionStrings__DefaultConnection: "Server=mssql,1433;Database=MyDatabase;User Id=sa;Password=YourStrong!Passw0rd;"
-  #     Elastic__Uri: "http://elasticsearch:9200"
-  #     Redis__Connection: "redis:6379"
+  api:
+    image: mcr.microsoft.com/dotnet/aspnet:8.0
+    container_name: myapi
+    build:
+      context: .
+      dockerfile: ./Library/Dockerfile
+    ports:
+      - "5000:8080"
+    depends_on:
+      - mssql
+      - elasticsearch
+      - redis
+      - liquibase
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=mssql,1433;Database=master;User Id=sa;Password=Your_password123;encrypt=true;trustServerCertificate=true"
+      Elastic__Url: "http://elasticsearch:9200"
+      Redis__ConnectionString: "redis:6379"
 
 volumes:
   redis-data:

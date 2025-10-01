@@ -49,6 +49,7 @@ namespace Library.Server.Repositories
 
                 Section section = new Section
                 {
+                    ArticleEventId = reader.GetInt64(reader.GetOrdinal("ArticleEventId")),
                     SectionId = reader.GetInt64(reader.GetOrdinal("SectionId")),
                     Name = reader.GetString(reader.GetOrdinal("Name")),
                     Active = reader.GetBoolean(reader.GetOrdinal("Active")),
@@ -64,6 +65,7 @@ namespace Library.Server.Repositories
                     {
                         SectionArticle sectionArticle = new SectionArticle
                         {
+                            ArticleEventId = section.ArticleEventId,
                             SectionId = reader.GetInt64(reader.GetOrdinal("SectionId")),
                             ArticleId = reader.GetInt64(reader.GetOrdinal("ArticleId")),
                             ArticleName = reader.GetString(reader.GetOrdinal("ArticleName")),
@@ -102,13 +104,15 @@ namespace Library.Server.Repositories
         private static DataTable CreateArticleListTable(IEnumerable<ArticleBatchItem> articleBatchItems)
         {
             var table = new DataTable();
+            
             table.Columns.Add("ArticleId", typeof(long));
+            table.Columns.Add("ArticleEventId", typeof(long));
             table.Columns.Add("TagsHash", typeof(string));
             table.Columns.Add("TagsConcatName", typeof(string));
 
             foreach (var item in articleBatchItems)
             {
-                table.Rows.Add(item.ArticleId, item.TagsHash, item.TagsConcatName);
+                table.Rows.Add(item.ArticleId, item.EventId, item.TagsHash, item.TagsConcatName);
             }
 
             return table;
