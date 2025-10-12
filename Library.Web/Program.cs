@@ -30,6 +30,7 @@ builder.Services.AddSingleton<ISectionRepository, SectionRepository>();
 builder.Services.AddSingleton<IArticleEventRepository, ArticleEventRepository>();
 builder.Services.AddSingleton<ISectionWriteService, SectionWriteService>();
 
+builder.Services.AddScoped<INormalizationService, ArticleRepository>();
 builder.Services.AddScoped<IArticleService, ArticleService>();
 builder.Services.AddScoped<ISectionReadService, SectionReadService>();
 

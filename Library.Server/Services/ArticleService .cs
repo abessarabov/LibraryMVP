@@ -9,12 +9,14 @@ namespace Library.Server.Services
     public class ArticleService : IArticleService
     {
         private readonly IArticleRepository _articleRepository;
+        private readonly INormalizationService _normalizationService;
         private readonly ITagRepository _tagRepository;
         private readonly ICache _cache;
 
-        public ArticleService(IArticleRepository articleRepository, ITagRepository tagRepository, ICache cache)
+        public ArticleService(IArticleRepository articleRepository, INormalizationService normalizationService,  ITagRepository tagRepository, ICache cache)
         {
             _articleRepository = articleRepository;
+            _normalizationService = normalizationService;
             _tagRepository = tagRepository;
             _cache = cache;
         }
@@ -31,14 +33,13 @@ namespace Library.Server.Services
 
         public async Task<ArticleRest> AddOrUpdateAsync(long? articleId, string name, List<string> tagNames)
         {
-            var normalizedTags = tagNames
-                .Where(t => !string.IsNullOrWhiteSpace(t))
-                .Select(NormalizeTag)
-                .ToHashSet()
-                .ToList();
+            var normalizedTags = await _normalizationService.NormalizeTagList(tagNames);
 
             if (!normalizedTags.Any())
                 throw new ArgumentException("Нужно указать хотя бы один тег");
+
+            if (normalizedTags.Count > 256)
+                throw new ArgumentException("Количество тегов не может превышать 256");
 
             Article newArticle = await _articleRepository.AddOrUpdateAsync(articleId, name, normalizedTags);
 
@@ -84,8 +85,6 @@ namespace Library.Server.Services
 
             return restContract;
         }
-
-        string NormalizeTag(string tag) => tag.Trim().ToLowerInvariant();
 
     }
 }
